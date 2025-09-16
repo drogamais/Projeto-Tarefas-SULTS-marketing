@@ -8,6 +8,7 @@ from config import DB_CONFIG
 # ... (as funções buscar_todos_chamados e transformar_dataframe_bronze continuam exatamente as mesmas) ...
 API_TOKEN = "O2Ryb2dhbWFpczsxNzQ0ODAzNDc1NjIx"
 BASE_URL = "https://api.sults.com.br/api/v1"
+
 headers = {
     "Authorization": API_TOKEN,
     "Content-Type": "application/json;charset=UTF-8",
@@ -69,7 +70,6 @@ def transformar_dataframe_bronze(df):
     print("✅ Transformação de tipos concluída.")
     return df
 
-# --- FUNÇÃO DE CARGA TOTALMENTE REESCRITA PARA UPSERT ---
 def upsert_camada_bronze(df, nome_tabela, db_config):
     """
     Realiza um 'UPSERT' no MariaDB.
@@ -129,8 +129,12 @@ def upsert_camada_bronze(df, nome_tabela, db_config):
             conn.close()
             print("Conexão com o banco de dados fechada.")
 
-# --- EXECUÇÃO PRINCIPAL ATUALIZADA ---
-if __name__ == "__main__":
+# --- FUNÇÃO PRINCIPAL PARA O ORQUESTRADOR ---
+def atualizar_camada_bronze():
+    """
+    Encapsula todo o processo de E+T+L da fonte (API) para a camada Bronze.
+    """
+    print("--- INICIANDO SUBPROCESSO: ATUALIZAÇÃO DA CAMADA BRONZE ---")
     # 1. EXTRAIR
     df_chamados_brutos = buscar_todos_chamados()
     
@@ -138,5 +142,10 @@ if __name__ == "__main__":
         # 2. TRANSFORMAR
         df_chamados_tratados = transformar_dataframe_bronze(df_chamados_brutos)
         
-        # 3. CARREGAR (agora usando a função de upsert)
+        # 3. CARREGAR (usando a função de upsert)
         upsert_camada_bronze(df_chamados_tratados, "bronze_chamados_sults", DB_CONFIG)
+    print("--- SUBPROCESSO BRONZE FINALIZADO ---")
+
+# --- BLOCO DE EXECUÇÃO INDEPENDENTE (PARA TESTES) ---
+if __name__ == "__main__":
+    atualizar_camada_bronze()

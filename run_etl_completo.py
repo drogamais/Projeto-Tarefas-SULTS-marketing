@@ -3,9 +3,9 @@
 import os
 import mariadb
 from config import DB_CONFIG
-# IMPORTANTE: Altere o nome da função aqui para corresponder ao seu arquivo sync_sults_marketing.py
-# Vamos assumir que você refatorou a lógica principal para a função 'atualizar_camada_bronze'
+# Confirma que estamos importando a função principal correta
 from sync_sults_marketing import atualizar_camada_bronze
+
 
 def executar_scripts_da_pasta(path_da_pasta, cursor):
     """
@@ -42,7 +42,7 @@ def executar_scripts_da_pasta(path_da_pasta, cursor):
     except FileNotFoundError:
         print(f"❌ ERRO: A pasta de scripts '{path_da_pasta}' não foi encontrada.")
         raise
-
+# ... (a função main continua a mesma) ...
 def main():
     """
     Orquestra todo o processo de ETL na ordem correta, usando a lógica de UPSERT.
@@ -78,9 +78,8 @@ def main():
         print(f"\n❌ ERRO CRÍTICO NO PROCESSO DE ORQUESTRAÇÃO. A execução foi interrompida.")
         print(f"  -> Detalhe do Erro: {e}")
     finally:
-        if conn and conn.is_connected():
+        if conn:
             conn.close()
             print("\nConexão com o banco de dados fechada.")
-
 if __name__ == "__main__":
     main()
