@@ -1,24 +1,19 @@
 import requests
 import pandas as pd
 from tqdm import tqdm
-from datetime import datetime
-import mariadb  # ADICIONADO: Usaremos a biblioteca mariadb diretamente
-from config import DB_CONFIG # Importa a configuração
+import mariadb
+from config import DB_CONFIG
 
-# --- CONFIGURAÇÃO GERAL ---
+# --- FUNÇÕES DE BUSCA E TRANSFORMAÇÃO (sem alterações) ---
+# ... (as funções buscar_todos_chamados e transformar_dataframe_bronze continuam exatamente as mesmas) ...
 API_TOKEN = "O2Ryb2dhbWFpczsxNzQ0ODAzNDc1NjIx"
 BASE_URL = "https://api.sults.com.br/api/v1"
-
 headers = {
     "Authorization": API_TOKEN,
     "Content-Type": "application/json;charset=UTF-8",
 }
 
 def buscar_todos_chamados(filtros=None):
-    """
-    Busca todos os chamados da API da SULTS.
-    (Esta função permanece sem alterações)
-    """
     if filtros is None:
         filtros = {}
     endpoint_chamados = "/chamado/ticket"
@@ -54,63 +49,94 @@ def buscar_todos_chamados(filtros=None):
     print(f"\nTotal de {len(todos_chamados)} chamados encontrados.")
     return pd.json_normalize(todos_chamados, sep='_')
 
-# --- FUNÇÃO DE CARGA MODIFICADA ---
-def salvar_na_camada_bronze(df, nome_tabela, db_config):
+def transformar_dataframe_bronze(df):
+    print("Iniciando transformação de tipos de dados no DataFrame...")
+    colunas_datas = [
+        'aberto', 'resolvido', 'concluido', 'resolverPlanejado',
+        'resolverEstipulado', 'primeiraInteracao', 'ultimaAlteracao'
+    ]
+    for col in colunas_datas:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors='coerce')
+    colunas_numericas = [
+        'id', 'tipo', 'situacao', 'solicitante_id', 'responsavel_id',
+        'unidade_id', 'departamento_id', 'assunto_id',
+        'countInteracaoPublico', 'countInteracaoInterno'
+    ]
+    for col in colunas_numericas:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+    print("✅ Transformação de tipos concluída.")
+    return df
+
+# --- FUNÇÃO DE CARGA TOTALMENTE REESCRITA PARA UPSERT ---
+def upsert_camada_bronze(df, nome_tabela, db_config):
     """
-    Salva o DataFrame em uma tabela do MariaDB usando a biblioteca 'mariadb'.
-    Esta função irá apagar e recriar a tabela a cada execução (modo 'replace').
+    Realiza um 'UPSERT' no MariaDB.
+    Insere novas linhas e atualiza as existentes com base na chave primária 'id'.
+    Assume que a tabela já existe.
     """
     conn = None
+    if df.empty:
+        print("DataFrame vazio, nenhum dado para carregar.")
+        return
+
     try:
-        # Conecta ao banco de dados usando os parâmetros do config
         print("\nConectando ao banco de dados MariaDB...")
         conn = mariadb.connect(**db_config)
         cursor = conn.cursor()
         print("✅ Conexão estabelecida com sucesso!")
+        print(f"Preparando para fazer o UPSERT de {len(df)} registros na tabela '{nome_tabela}'...")
 
-        print(f"Preparando para carregar {len(df)} registros na tabela '{nome_tabela}'...")
-        
-        # 1. Apaga a tabela antiga, se ela existir
-        cursor.execute(f"DROP TABLE IF EXISTS {nome_tabela}")
-        
-        # 2. Cria a nova tabela (Pandas ajuda a gerar o SQL de criação)
-        # Usamos a função do Pandas para gerar o CREATE TABLE, que é complexo de fazer manualmente
-        create_table_sql = pd.io.sql.get_schema(df, nome_tabela)
-        # Pequeno ajuste para garantir compatibilidade com MariaDB
-        create_table_sql = create_table_sql.replace('"', '`') 
-        cursor.execute(create_table_sql)
+        # 1. Prepara a query de UPSERT
+        colunas = [f"`{col}`" for col in df.columns]
+        colunas_str = ", ".join(colunas)
+        placeholders_str = ", ".join(['?'] * len(df.columns))
 
-        # 3. Insere os dados de forma eficiente
-        # Converte o DataFrame para uma lista de tuplas (formato que o executemany espera)
-        dados_para_inserir = [tuple(x) for x in df.to_numpy()]
+        # Cria a parte "UPDATE" da query
+        update_clause = ", ".join([f"{col} = VALUES({col})" for col in colunas if col.lower() != '`id`'])
         
-        # Cria a string de inserção, ex: INSERT INTO tabela VALUES (?, ?, ?, ...)
-        sql_insert = f"INSERT INTO {nome_tabela} VALUES ({','.join(['?'] * len(df.columns))})"
+        sql_upsert = (
+            f"INSERT INTO `{nome_tabela}` ({colunas_str}) "
+            f"VALUES ({placeholders_str}) "
+            f"ON DUPLICATE KEY UPDATE {update_clause}"
+        )
         
-        cursor.executemany(sql_insert, dados_para_inserir)
-        
-        # 4. Confirma a transação
+        # 2. Prepara os dados
+        df_para_db = df.astype(object).where(pd.notnull(df), None)
+        dados_para_inserir = [tuple(x) for x in df_para_db.to_numpy()]
+
+        # 3. Executa a query
+        cursor.executemany(sql_upsert, dados_para_inserir)
         conn.commit()
-        print(f"✅ Carga de {cursor.rowcount} registros para a camada Bronze concluída!")
+        
+        # A propriedade .rowcount em um UPSERT retorna:
+        # 1 para cada inserção nova.
+        # 2 para cada atualização.
+        # 0 se nada mudou.
+        print(f"✅ Carga Upsert concluída! Status de linhas afetadas: {cursor.rowcount}")
 
     except mariadb.Error as e:
-        print(f"❌ Erro ao interagir com o MariaDB: {e}")
+        # Erro comum: a tabela não existe. Damos uma dica para o usuário.
+        if "Table" in str(e) and "doesn't exist" in str(e):
+             print(f"❌ ERRO: A tabela '{nome_tabela}' parece não existir.")
+             print("   -> DICA: Para a primeira execução, use o script anterior (com DROP/CREATE) para criar a tabela com o schema correto.")
+        else:
+            print(f"❌ Erro ao interagir com o MariaDB: {e}")
+        raise e
     finally:
         if conn:
             conn.close()
             print("Conexão com o banco de dados fechada.")
 
-# --- EXECUÇÃO PRINCIPAL ---
+# --- EXECUÇÃO PRINCIPAL ATUALIZADA ---
 if __name__ == "__main__":
-    
-    filtros_de_busca = {}
-    
-    # 1. EXTRAIR: Puxa os dados da API
-    df_chamados_brutos = buscar_todos_chamados(filtros=filtros_de_busca)
+    # 1. EXTRAIR
+    df_chamados_brutos = buscar_todos_chamados()
     
     if not df_chamados_brutos.empty:
-        # Limpeza para evitar problemas na inserção
-        df_chamados_brutos = df_chamados_brutos.astype(object).where(pd.notnull(df_chamados_brutos), None)
+        # 2. TRANSFORMAR
+        df_chamados_tratados = transformar_dataframe_bronze(df_chamados_brutos)
         
-        # 2. CARREGAR: Salva os dados brutos na tabela bronze
-        salvar_na_camada_bronze(df_chamados_brutos, "bronze_chamados_sults", DB_CONFIG)
+        # 3. CARREGAR (agora usando a função de upsert)
+        upsert_camada_bronze(df_chamados_tratados, "bronze_chamados_sults", DB_CONFIG)
