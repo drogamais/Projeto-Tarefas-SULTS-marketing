@@ -1,0 +1,8 @@
+# Este arquivo contém as configurações sensíveis do projeto.
+DB_CONFIG = {
+    "user": "USUARIO",
+    "password": "SENHA",
+    "host": "10.48.12.20",
+    "port": 3306,
+    "database": "dbSults"
+}
