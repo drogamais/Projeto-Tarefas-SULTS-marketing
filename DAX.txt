@@ -1,0 +1,52 @@
+NomeApoio = 
+VAR ResponsavelID = fatChamadoSultsApoio[id_pessoa_apoio]
+VAR ListaIDsPrioritarios = {58, 67, 70}
+
+RETURN
+IF(
+    ResponsavelID IN ListaIDsPrioritarios,
+    
+    -- Se o ID está na lista, calcula o nome usando a relação INATIVA
+    CALCULATE(
+        SELECTEDVALUE(dimPessoa[nome_oficial]), -- Pega o nome da pessoa (mais seguro que MIN/MAX)
+        USERELATIONSHIP(fatChamadoSultsApoio[id_pessoa_apoio], dimPessoa[id_sults]) -- ATIVA a relação para esta conta
+    ),
+    
+    -- Caso contrário, retorna "Outro"
+    "Outro"
+)
+
+
+NomeResponsavel = 
+VAR ResponsavelID = fatChamadoSults[responsavel_id]
+VAR ListaIDsPrioritarios = {58, 67, 70}
+
+RETURN
+IF(
+    ResponsavelID IN ListaIDsPrioritarios,
+    
+    -- Se o ID está na lista, calcula o nome usando a relação INATIVA
+    CALCULATE(
+        SELECTEDVALUE(dimPessoa[nome_oficial]), -- Pega o nome da pessoa (mais seguro que MIN/MAX)
+        USERELATIONSHIP(fatChamadoSults[responsavel_id], dimPessoa[id_sults]) -- ATIVA a relação para esta conta
+    ),
+    
+    -- Caso contrário, retorna "Outro"
+    "Outro"
+)
+
+
+NomeSolicitante = 
+IF(
+    fatChamadoSults[solicitante_id] IN {58, 67, 70},
+
+    -- Se o ID ESTIVER na lista, executa a sua fórmula que já funciona
+    LOOKUPVALUE(
+        dimPessoa[nome_oficial],
+        dimPessoa[id_sults],
+        fatChamadoSults[solicitante_id]
+    ),
+
+    -- Se o ID NÃO ESTIVER na lista, retorna "Outro"
+    "Outro"
+)
