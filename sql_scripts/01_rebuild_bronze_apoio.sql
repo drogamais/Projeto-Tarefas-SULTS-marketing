@@ -4,6 +4,7 @@ DROP TABLE IF EXISTS bronze_chamados_sults_apoio;
 -- Cria a estrutura vazia da tabela de apoio da bronze.
 CREATE TABLE `bronze_chamados_sults_apoio` (
     `id_apoio` VARCHAR(255) PRIMARY KEY,
+    `data` DATE,
     `id_chamado` INT,
     `nome_apoio` VARCHAR(255),
     `id_pessoa_apoio` INT,
@@ -11,19 +12,27 @@ CREATE TABLE `bronze_chamados_sults_apoio` (
     `id_departamento` INT,
     `pessoaUnidade` TINYINT(1),
     `solicitante_id` INT,
-    `solicitante_nome` VARCHAR(255), -- Sugestão: Usar VARCHAR em vez de TEXT se houver limite de tamanho
+    `solicitante_nome` VARCHAR(255),
     `responsavel_id` INT,
-    `responsavel_nome` VARCHAR(255), -- Sugestão: Usar VARCHAR em vez de TEXT se houver limite de tamanho
+    `responsavel_nome` VARCHAR(255),
     `situacao_chamado` VARCHAR(50)
 );
 
 -- Insere os dados já transformados em um único passo
 INSERT INTO bronze_chamados_sults_apoio (
-    id_apoio, id_chamado, nome_apoio, id_pessoa_apoio, nome_departamento, id_departamento, pessoaUnidade,
+    id_apoio, 
+    data, -- << 1. COLUNA ADICIONADA AQUI
+    id_chamado, nome_apoio, id_pessoa_apoio, nome_departamento, id_departamento, pessoaUnidade,
     solicitante_id, solicitante_nome, responsavel_id, responsavel_nome, situacao_chamado
 )
 SELECT DISTINCT
     CONCAT(bcs.id, '-', jt.id_pessoa_apoio) AS id_apoio,
+    
+    -- <<< INÍCIO DA CORREÇÃO >>>
+    -- Pega apenas os 10 primeiros caracteres do texto da data (YYYY-MM-DD)
+    LEFT(COALESCE(bcs.resolvido, bcs.concluido), 10) AS data,
+    -- <<< FIM DA CORREÇÃO >>>
+
     bcs.id AS id_chamado,
     COALESCE(jt.nome_apoio, 'NÃO INFORMADO') AS nome_apoio,
     COALESCE(jt.id_pessoa_apoio, 0) AS id_pessoa_apoio,
