@@ -1,40 +1,50 @@
 -- Cria ou substitui a View focada nos dados do solicitante
 CREATE OR REPLACE VIEW vw_prata_chamados_sults_solicitante AS
+-- ADICIONADO: Definição da CTE 'marketing_ids' que estava faltando
+WITH marketing_ids AS (
+    SELECT id_sults FROM dim_responsaveis WHERE departamento_nome = 'MARKETING'
+)
 SELECT
     -- Seleciona e renomeia as colunas necessárias
-    id AS id_chamado,
-    solicitante_nome,
-    solicitante_id
+    bcs.id_chamado,
+    bcs.titulo,
+    DATE(COALESCE(bcs.resolvido, bcs.aberto)) AS data,
+
+    CASE
+        WHEN bcs.solicitante_id NOT IN (SELECT id_sults FROM marketing_ids) THEN 0
+        ELSE bcs.solicitante_id
+    END AS solicitante_id,
+    
+    CASE
+        WHEN bcs.solicitante_id NOT IN (SELECT id_sults FROM marketing_ids) THEN 'Outro'
+        ELSE bcs.solicitante_nome
+    END AS solicitante_nome,
+
+        -- Busca o departamento da pessoa de apoio a partir da tabela dim_responsaveis
+    COALESCE(dr_solicitante.departamento_id, 0) AS departamento_solicitante_id,
+    COALESCE(dr_solicitante.departamento_nome, 'Não Informado') AS departamento_solicitante_nome,
+
+    bcs.assunto_id,
+    bcs.assunto_nome,
+
+    bcs.situacao,
+    -- Lógica para criar a coluna situacao_nome (CORRIGIDA)
+    CASE bcs.situacao
+        WHEN 1 THEN 'NOVO CHAMADO'
+        WHEN 2 THEN 'CONCLUÍDO'
+        WHEN 3 THEN 'RESOLVIDO'
+        WHEN 4 THEN 'EM ANDAMENTO'
+        WHEN 5 THEN 'AGUARDANDO SOLICITANTE'
+        WHEN 6 THEN 'AGUARDANDO RESPONSÁVEL'
+        ELSE 'SITUAÇÃO DESCONHECIDA' -- Adicionado como boa prática para casos inesperados
+    END AS situacao_nome
+
 FROM
-    bronze_chamados_sults
+    bronze_chamados_sults AS bcs
+
+    LEFT JOIN
+    dim_responsaveis AS dr_solicitante 
+    ON bcs.solicitante_id = dr_solicitante.id_sults
 WHERE
-    -- MANTÉM EXATAMENTE A MESMA LÓGICA DE FILTRAGEM DA VIEW ANTERIOR
-    -- para garantir que ambas as views representem o mesmo conjunto de chamados.
-    
     -- CONDIÇÃO 1: Chamados do departamento 1 em situação 1 ou 2
-    (departamento_id = 1 AND situacao IN (1, 2))
-
-    OR
-    
-    -- CONDIÇÃO 2: Chamados de solicitantes específicos
-    solicitante_id IN (58, 67, 70)
-
-    OR
-
-    -- CONDIÇÃO 3: Onde existe alguém do Marketing na coluna 'apoio'
-    EXISTS (
-        SELECT 1
-        FROM JSON_TABLE(
-            -- Trata a string para um JSON válido
-            REPLACE(REPLACE(REPLACE(apoio, "'", '"'), ': True', ': true'), ': False', ': false'),
-            
-            -- Caminho para extrair os objetos do array JSON
-            '$[*]' 
-            
-            -- Define a coluna a ser extraída de cada objeto
-            COLUMNS (
-                dept_apoio VARCHAR(255) PATH '$.departamento.nome'
-            )
-        ) AS jt
-        WHERE jt.dept_apoio = 'Marketing'
-    );
+    bcs.departamento_id = 1

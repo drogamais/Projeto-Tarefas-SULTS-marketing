@@ -15,7 +15,8 @@ CREATE TABLE `bronze_chamados_sults_apoio` (
     `solicitante_nome` VARCHAR(255),
     `responsavel_id` INT,
     `responsavel_nome` VARCHAR(255),
-    `situacao_chamado` VARCHAR(50)
+    `situacao` INT,
+    `situacao_nome` VARCHAR(50)
 );
 
 -- Insere os dados já transformados em um único passo
@@ -23,17 +24,17 @@ INSERT INTO bronze_chamados_sults_apoio (
     id_apoio, 
     data, -- << 1. COLUNA ADICIONADA AQUI
     id_chamado, nome_apoio, id_pessoa_apoio, nome_departamento, id_departamento, pessoaUnidade,
-    solicitante_id, solicitante_nome, responsavel_id, responsavel_nome, situacao_chamado
+    solicitante_id, solicitante_nome, responsavel_id, responsavel_nome, situacao, situacao_nome
 )
 SELECT DISTINCT
-    CONCAT(bcs.id, '-', jt.id_pessoa_apoio) AS id_apoio,
+    CONCAT(bcs.id_chamado, '-', jt.id_pessoa_apoio) AS id_apoio,
     
     -- <<< INÍCIO DA CORREÇÃO >>>
     -- Pega apenas os 10 primeiros caracteres do texto da data (YYYY-MM-DD)
-    LEFT(COALESCE(bcs.resolvido, bcs.concluido), 10) AS data,
+    LEFT(COALESCE(bcs.resolvido, bcs.aberto), 10) AS data,
     -- <<< FIM DA CORREÇÃO >>>
 
-    bcs.id AS id_chamado,
+    bcs.id_chamado,
     COALESCE(jt.nome_apoio, 'NÃO INFORMADO') AS nome_apoio,
     COALESCE(jt.id_pessoa_apoio, 0) AS id_pessoa_apoio,
     COALESCE(jt.nome_departamento, 'NÃO INFORMADO') AS nome_departamento,
@@ -43,11 +44,12 @@ SELECT DISTINCT
     bcs.solicitante_nome,
     bcs.responsavel_id,
     bcs.responsavel_nome,
+    bcs.situacao,
     CASE bcs.situacao
         WHEN 1 THEN 'Novo Chamado' WHEN 2 THEN 'Resolvido' WHEN 3 THEN 'Concluído'
         WHEN 4 THEN 'Em Andamento' WHEN 5 THEN 'Aguardando Solicitante' WHEN 6 THEN 'Aguardando Responsável'
-        ELSE 'Outro'
-    END AS situacao_chamado
+        ELSE 'Situação Desconhecida'
+    END AS situacao_nome
 FROM 
     bronze_chamados_sults AS bcs,
     JSON_TABLE(

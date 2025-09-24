@@ -24,7 +24,19 @@ SELECT
     COALESCE(dr_apoio.departamento_id, 0) AS departamento_apoio_id,
     COALESCE(dr_apoio.departamento_nome, 'Não Informado') AS departamento_apoio_nome,
 
-    bca.data
+    bca.data,
+
+    bca.situacao,
+    -- Lógica para criar a coluna situacao_nome (CORRIGIDA)
+    CASE bca.situacao
+        WHEN 1 THEN 'NOVO CHAMADO'
+        WHEN 2 THEN 'CONCLUÍDO'
+        WHEN 3 THEN 'RESOLVIDO'
+        WHEN 4 THEN 'EM ANDAMENTO'
+        WHEN 5 THEN 'AGUARDANDO SOLICITANTE'
+        WHEN 6 THEN 'AGUARDANDO RESPONSÁVEL'
+        ELSE 'SITUAÇÃO DESCONHECIDA' -- Adicionado como boa prática para casos inesperados
+    END AS situacao_nome
     
 FROM
     bronze_chamados_sults_apoio AS bca
@@ -35,5 +47,4 @@ LEFT JOIN
     ON bca.id_pessoa_apoio = dr_apoio.id_sults
 
 WHERE
-    bca.situacao_chamado IN ('Resolvido', 'Concluído')
-    AND bca.id_departamento = 1;
+    bca.id_departamento = 1;
