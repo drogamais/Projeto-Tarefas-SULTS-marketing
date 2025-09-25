@@ -51,6 +51,11 @@ def buscar_todos_chamados(filtros=None):
     return pd.json_normalize(todos_chamados, sep='_')
 
 def transformar_dataframe_bronze(df):
+
+    if 'id' in df.columns:
+        print("Renomeando coluna 'id' para 'id_chamado'...")
+        df.rename(columns={'id': 'id_chamado'}, inplace=True)
+
     print("Iniciando transformação de tipos de dados no DataFrame...")
     colunas_datas = [
         'aberto', 'resolvido', 'concluido', 'resolverPlanejado',
@@ -69,6 +74,58 @@ def transformar_dataframe_bronze(df):
             df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
     print("✅ Transformação de tipos concluída.")
     return df
+
+def criar_tabela_se_nao_existir(nome_tabela, db_config):
+    """Verifica se a tabela existe e a cria se necessário."""
+    conn = None
+    try:
+        conn = mariadb.connect(**db_config)
+        cursor = conn.cursor()
+        
+        # Query para criar a tabela (mesma estrutura do SQL acima)
+        # Usar CREATE TABLE IF NOT EXISTS é seguro e só executa se a tabela não existir.
+        create_table_query = f"""
+        CREATE TABLE IF NOT EXISTS {nome_tabela} (
+            id_chamado BIGINT NOT NULL PRIMARY KEY,
+            titulo TEXT,
+            aberto DATETIME,
+            resolvido DATETIME,
+            concluido DATETIME,
+            resolverPlanejado DATETIME,
+            resolverEstipulado DATETIME,
+            primeiraInteracao DATETIME,
+            ultimaAlteracao DATETIME,
+            tipo BIGINT,
+            situacao BIGINT,
+            solicitante_id BIGINT,
+            solicitante_nome VARCHAR(255),
+            responsavel_id BIGINT,
+            responsavel_nome VARCHAR(255),
+            unidade_id BIGINT,
+            unidade_nome VARCHAR(255),
+            departamento_id BIGINT,
+            departamento_nome VARCHAR(255),
+            assunto_id BIGINT,
+            assunto_nome VARCHAR(255),
+            countInteracaoPublico BIGINT,
+            countInteracaoInterno BIGINT,
+            apoio JSON,
+            etiqueta TEXT,
+            avaliacaoNota TEXT
+        );
+        """
+        
+        print(f"Verificando e, se necessário, criando a tabela '{nome_tabela}'...")
+        cursor.execute(create_table_query)
+        conn.commit()
+        print("✅ Tabela pronta para uso.")
+        
+    except mariadb.Error as e:
+        print(f"❌ Erro ao verificar/criar a tabela: {e}")
+        raise e
+    finally:
+        if conn:
+            conn.close()
 
 def upsert_camada_bronze(df, nome_tabela, db_config):
     """
@@ -94,7 +151,7 @@ def upsert_camada_bronze(df, nome_tabela, db_config):
         placeholders_str = ", ".join(['?'] * len(df.columns))
 
         # Cria a parte "UPDATE" da query
-        update_clause = ", ".join([f"{col} = VALUES({col})" for col in colunas if col.lower() != '`id`'])
+        update_clause = ", ".join([f"{col} = VALUES({col})" for col in colunas if col.lower() != '`id_chamado`'])
         
         sql_upsert = (
             f"INSERT INTO `{nome_tabela}` ({colunas_str}) "
@@ -129,12 +186,16 @@ def upsert_camada_bronze(df, nome_tabela, db_config):
             conn.close()
             print("Conexão com o banco de dados fechada.")
 
-# --- FUNÇÃO PRINCIPAL PARA O ORQUESTRADOR ---
+#--- FUNÇÃO PRINCIPAL PARA O ORQUESTRADOR ---
 def atualizar_camada_bronze():
     """
     Encapsula todo o processo de E+T+L da fonte (API) para a camada Bronze.
     """
     print("--- INICIANDO SUBPROCESSO: ATUALIZAÇÃO DA CAMADA BRONZE ---")
+    
+    # Adicione a chamada da nova função AQUI
+    criar_tabela_se_nao_existir("bronze_chamados_sults", DB_CONFIG)
+    
     # 1. EXTRAIR
     df_chamados_brutos = buscar_todos_chamados()
     
