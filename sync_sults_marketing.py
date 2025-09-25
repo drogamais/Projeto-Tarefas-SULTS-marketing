@@ -57,6 +57,12 @@ def transformar_dataframe_bronze(df):
         df.rename(columns={'id': 'id_chamado'}, inplace=True)
 
     print("Iniciando transformação de tipos de dados no DataFrame...")
+
+    # Renomeia a coluna 'id' que vem da API para 'id_chamado' para bater com a tabela no BD.
+    if 'id' in df.columns:
+        print("Renomeando coluna 'id' para 'id_chamado'...")
+        df.rename(columns={'id': 'id_chamado'}, inplace=True)
+
     colunas_datas = [
         'aberto', 'resolvido', 'concluido', 'resolverPlanejado',
         'resolverEstipulado', 'primeiraInteracao', 'ultimaAlteracao'
@@ -65,7 +71,7 @@ def transformar_dataframe_bronze(df):
         if col in df.columns:
             df[col] = pd.to_datetime(df[col], errors='coerce')
     colunas_numericas = [
-        'id', 'tipo', 'situacao', 'solicitante_id', 'responsavel_id',
+        'id_chamado', 'tipo', 'situacao', 'solicitante_id', 'responsavel_id',
         'unidade_id', 'departamento_id', 'assunto_id',
         'countInteracaoPublico', 'countInteracaoInterno'
     ]
