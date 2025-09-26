@@ -4,7 +4,7 @@ mariadb -h seu_host -u seu_usuario -pSuaSenha seu_banco < cria_prata.sql
 
 echo.
 echo [PASSO 2 de 2] Executando script Python para atualizar a camada bronze...
-python .\sync_sults_marketing.py
+python .\run_sync.py
 
 echo.
 echo Processo Concluido!

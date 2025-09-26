@@ -1,17 +1,33 @@
--- Garante que a tabela seja sempre recriada do zero para refletir as atualizações da camada bronze.
-DROP TABLE IF EXISTS prata_chamados_unificada;
+-- 1. Garante que a tabela antiga seja removida antes de começar.
+DROP TABLE IF EXISTS prata_chamados_sults;
 
--- Cria a nova tabela prata unificada, consolidando toda a lógica.
-CREATE TABLE prata_chamados_marketing AS
+-- 2. Cria a estrutura da tabela vazia, definindo a PRIMARY KEY.
+CREATE TABLE prata_chamados_sults (
+    id_fato_chamado                 VARCHAR(255) PRIMARY KEY,
+    id_chamado                      INT,
+    titulo                          TEXT,
+    data_referencia                 DATE,
+    assunto_id                      INT,
+    assunto_nome                    VARCHAR(255),
+    situacao                        INT,
+    situacao_nome                   VARCHAR(255),
+    solicitante_id                  INT,
+    solicitante_nome                VARCHAR(255),
+    departamento_solicitante_nome   VARCHAR(255),
+    responsavel_id                  INT,
+    responsavel_nome                VARCHAR(255),
+    departamento_responsavel_nome   VARCHAR(255),
+    id_pessoa_apoio                 INT,
+    nome_apoio                      VARCHAR(255),
+    departamento_apoio_nome         VARCHAR(255),
+    tipo_origem                     VARCHAR(100)
+);
 
--- CTE para definir a lista de IDs do Marketing.
-WITH marketing_ids AS (
-    SELECT id_sults FROM dim_responsaveis WHERE departamento_nome = 'MARKETING'
-),
-
+-- 3. Insere os dados na tabela recém-criada usando a lógica de transformação.
+INSERT INTO prata_chamados_sults
 -- ETAPA 1: Expande o JSON para ter uma linha por pessoa de apoio.
-bronze_com_apoio AS (
-    SELECT
+WITH bronze_com_apoio AS (
+    SELECT DISTINCT
         bcs.*, -- Pega todas as colunas originais da tabela bronze
         jt.nome_apoio AS nome_pessoa_apoio, -- Renomeia para evitar ambiguidade
         jt.id_pessoa_apoio
@@ -38,7 +54,7 @@ chamados_filtrados AS (
     AND COALESCE(id_pessoa_apoio, 0) NOT IN (1, 41)
 )
 
--- ETAPA 3: Com os dados já limpos, aplica a lógica de negócio (inclusão e transformação).
+-- ETAPA 3: Com os dados já limpos, seleciona e transforma as colunas para a inserção.
 SELECT
     -- 1. CHAVE PRIMÁRIA ARTIFICIAL (ID DO FATO)
     CONCAT(bcs.id_chamado, '-', COALESCE(bcs.id_pessoa_apoio, 0)) AS id_fato_chamado,
@@ -57,32 +73,31 @@ SELECT
     END AS situacao_nome,
 
     -- 3. DADOS DO SOLICITANTE
-    CASE WHEN bcs.solicitante_id NOT IN (SELECT id_sults FROM marketing_ids) THEN 0 ELSE bcs.solicitante_id END AS solicitante_id,
-    CASE WHEN bcs.solicitante_id NOT IN (SELECT id_sults FROM marketing_ids) THEN 'Outro' ELSE bcs.solicitante_nome END AS solicitante_nome,
+    bcs.solicitante_id,
+    -- MODIFICADO: Usa o nome_oficial da dim_responsaveis com fallback.
+    COALESCE(dr_solicitante.nome_oficial, bcs.solicitante_nome) AS solicitante_nome,
     COALESCE(dr_solicitante.departamento_nome, 'Não Informado') AS departamento_solicitante_nome,
 
     -- 4. DADOS DO RESPONSÁVEL
-    CASE WHEN bcs.responsavel_id NOT IN (SELECT id_sults FROM marketing_ids) THEN 0 ELSE bcs.responsavel_id END AS responsavel_id,
-    CASE WHEN bcs.responsavel_id NOT IN (SELECT id_sults FROM marketing_ids) THEN 'Outro' ELSE bcs.responsavel_nome END AS responsavel_nome,
+    bcs.responsavel_id,
+    COALESCE(dr_responsavel.nome_oficial, bcs.responsavel_nome) AS responsavel_nome,
     COALESCE(dr_responsavel.departamento_nome, 'Não Informado') AS departamento_responsavel_nome,
 
     -- 5. DADOS DA PESSOA DE APOIO
-    CASE
-        WHEN bcs.id_pessoa_apoio IS NULL THEN NULL -- Se não existe apoio, ID é NULO
-        WHEN bcs.id_pessoa_apoio NOT IN (SELECT id_sults FROM marketing_ids) THEN 0 -- Se é "Outro", ID é 0
-        ELSE bcs.id_pessoa_apoio -- Caso contrário, usa o ID real
-    END AS id_pessoa_apoio,
-    
-    CASE
-        WHEN bcs.id_pessoa_apoio IS NULL THEN NULL -- Se não existe apoio, Nome é NULO
-        WHEN bcs.id_pessoa_apoio NOT IN (SELECT id_sults FROM marketing_ids) THEN 'Outro' -- Se é "Outro", Nome é 'Outro'
-        ELSE COALESCE(bcs.nome_pessoa_apoio, 'Nome não informado')
+    bcs.id_pessoa_apoio,
+    -- MODIFICADO: Usa o nome_oficial da dim_responsaveis com fallback, dentro da lógica que trata nulos.
+    CASE 
+        WHEN bcs.id_pessoa_apoio IS NULL THEN NULL 
+        ELSE COALESCE(dr_apoio.nome_oficial, bcs.nome_pessoa_apoio, 'Nome não informado') 
     END AS nome_apoio,
     
     CASE
-        WHEN bcs.id_pessoa_apoio IS NULL THEN NULL -- Se não existe apoio, Depto é NULO
+        WHEN bcs.id_pessoa_apoio IS NULL THEN NULL
         ELSE COALESCE(dr_apoio.departamento_nome, 'Departamento não informado')
-    END AS departamento_apoio_nome
+    END AS departamento_apoio_nome,
+    
+    -- 6. DADOS DE ORIGEM
+    bcs.tipo_origem
 
 FROM
     chamados_filtrados AS bcs -- A FONTE AGORA É A TABELA JÁ FILTRADA
@@ -92,10 +107,4 @@ LEFT JOIN
 LEFT JOIN
     dim_responsaveis AS dr_apoio ON bcs.id_pessoa_apoio = dr_apoio.id_sults
 LEFT JOIN
-    dim_responsaveis AS dr_responsavel ON bcs.responsavel_id = dr_responsavel.id_sults
-
-WHERE
-    -- Apenas a lógica de INCLUSÃO é necessária aqui. A exclusão já foi feita.
-    bcs.departamento_id = 1
-    OR bcs.solicitante_id IN (SELECT id_sults FROM marketing_ids)
-    OR bcs.id_pessoa_apoio IN (SELECT id_sults FROM marketing_ids);
+    dim_responsaveis AS dr_responsavel ON bcs.responsavel_id = dr_responsavel.id_sults;

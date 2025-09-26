@@ -1,11 +1,10 @@
-# run_etl_completo.py
+# run_prata.py
 
 import os
 import mariadb
+import sys
+# Garanta que você tenha um arquivo config.py com o dicionário DB_CONFIG
 from config import DB_CONFIG
-# Confirma que estamos importando a função principal correta
-from sync_sults_marketing import atualizar_camada_bronze
-
 
 def executar_scripts_da_pasta(path_da_pasta, cursor):
     """
@@ -13,8 +12,6 @@ def executar_scripts_da_pasta(path_da_pasta, cursor):
     """
     print(f"\n--- EXECUTANDO SCRIPTS SQL DA PASTA: {path_da_pasta} ---")
     try:
-        # Pega todos os arquivos da pasta que terminam com .sql e os ordena
-        # A numeração (01_, 02_) garante a ordem correta de execução.
         scripts = sorted([f for f in os.listdir(path_da_pasta) if f.endswith('.sql')])
         
         if not scripts:
@@ -37,30 +34,24 @@ def executar_scripts_da_pasta(path_da_pasta, cursor):
 
     except mariadb.Error as e:
         print(f"❌ ERRO ao executar o script '{script_file}'. A execução foi interrompida.")
-        # Propaga o erro para que o bloco 'main' possa capturá-lo e parar o processo
-        raise e
+        raise e # Propaga o erro para o bloco 'main'
     except FileNotFoundError:
         print(f"❌ ERRO: A pasta de scripts '{path_da_pasta}' não foi encontrada.")
         raise
-# ... (a função main continua a mesma) ...
+
 def main():
     """
-    Orquestra todo o processo de ETL na ordem correta, usando a lógica de UPSERT.
+    Função principal para executar as transformações SQL da camada Prata.
     """
+    print("==================================================")
+    print("== INICIANDO PROCESSO DE CRIAÇÃO DA CAMADA PRATA ==")
+    print("==================================================")
+    
     conn = None
-    # Define a pasta onde seus scripts SQL modulares estão organizados
     SQL_SCRIPTS_FOLDER = "sql_scripts" 
 
     try:
-        print("--- INICIANDO PROCESSO DE ETL COMPLETO ---")
-        
-        # --- PASSO 1: SINCRONIZAR A CAMADA BRONZE PRINCIPAL (UPSERT) ---
-        # Esta função agora apenas insere/atualiza a tabela 'bronze_chamados_sults' via API.
-        atualizar_camada_bronze()
-
-        # --- PASSO 2: RECONSTRUIR COMPLETAMENTE AS CAMADAS DERIVADAS ---
-        # Agora que a bronze principal está atualizada, reconstruímos tudo que depende dela.
-        print("\n--- INICIANDO FASE DE TRANSFORMAÇÃO E CARGA (SQL) ---")
+        print("\nConectando ao banco de dados para iniciar as transformações...")
         conn = mariadb.connect(**DB_CONFIG)
         cursor = conn.cursor()
         
@@ -69,17 +60,17 @@ def main():
         
         # Confirma todas as transações SQL
         conn.commit()
-        print("✅ Transformações SQL commitadas no banco de dados.")
-
-        print("\n🎉 PROCESSO DE ETL COMPLETO CONCLUÍDO COM SUCESSO! 🎉")
+        print("\n✅ Transformações SQL commitadas no banco de dados.")
+        print("\n🎉 PROCESSO DA CAMADA PRATA CONCLUÍDO COM SUCESSO! 🎉")
 
     except Exception as e:
-        # Pega qualquer erro, seja do Python (ex: API offline) ou do SQL (ex: sintaxe errada)
-        print(f"\n❌ ERRO CRÍTICO NO PROCESSO DE ORQUESTRAÇÃO. A execução foi interrompida.")
-        print(f"  -> Detalhe do Erro: {e}")
+        print(f"\n❌ ERRO CRÍTICO NO PROCESSO DA CAMADA PRATA.")
+        print(f"   -> Detalhe do Erro: {e}")
+        sys.exit(1)
     finally:
         if conn:
             conn.close()
             print("\nConexão com o banco de dados fechada.")
+
 if __name__ == "__main__":
     main()

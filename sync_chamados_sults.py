@@ -50,6 +50,7 @@ def buscar_todos_chamados(filtros=None):
     print(f"\nTotal de {len(todos_chamados)} chamados encontrados.")
     return pd.json_normalize(todos_chamados, sep='_')
 
+# 1. Ajuste na função de transformação para adicionar o valor 'SULTS'
 def transformar_dataframe_bronze(df):
 
     if 'id' in df.columns:
@@ -58,18 +59,15 @@ def transformar_dataframe_bronze(df):
 
     print("Iniciando transformação de tipos de dados no DataFrame...")
 
-    # Renomeia a coluna 'id' que vem da API para 'id_chamado' para bater com a tabela no BD.
-    if 'id' in df.columns:
-        print("Renomeando coluna 'id' para 'id_chamado'...")
-        df.rename(columns={'id': 'id_chamado'}, inplace=True)
-
+    # ... (o código de conversão de datas e números continua o mesmo) ...
     colunas_datas = [
         'aberto', 'resolvido', 'concluido', 'resolverPlanejado',
         'resolverEstipulado', 'primeiraInteracao', 'ultimaAlteracao'
     ]
     for col in colunas_datas:
         if col in df.columns:
-            df[col] = pd.to_datetime(df[col], errors='coerce')
+            df[col] = pd.to_datetime(df[col], errors='coerce').dt.tz_localize(None)
+            
     colunas_numericas = [
         'id_chamado', 'tipo', 'situacao', 'solicitante_id', 'responsavel_id',
         'unidade_id', 'departamento_id', 'assunto_id',
@@ -77,9 +75,17 @@ def transformar_dataframe_bronze(df):
     ]
     for col in colunas_numericas:
         if col in df.columns:
+            # Mantemos a conversão aqui para o 'tipo' original da API se precisar dele
             df[col] = pd.to_numeric(df[col], errors='coerce').astype('Int64')
+
+    # --- LINHA ADICIONADA ---
+    # Aqui criamos/sobrescrevemos a coluna 'tipo' com o valor fixo.
+    print("Definindo a coluna 'tipo' como 'SULTS' para todos os registros.")
+    df['tipo_origem'] = 'SULTS' # Renomeei para não conflitar com a coluna tipo da API
+    
     print("✅ Transformação de tipos concluída.")
     return df
+
 
 def criar_tabela_se_nao_existir(nome_tabela, db_config):
     """Verifica se a tabela existe e a cria se necessário."""
@@ -88,36 +94,38 @@ def criar_tabela_se_nao_existir(nome_tabela, db_config):
         conn = mariadb.connect(**db_config)
         cursor = conn.cursor()
         
-        # Query para criar a tabela (mesma estrutura do SQL acima)
-        # Usar CREATE TABLE IF NOT EXISTS é seguro e só executa se a tabela não existir.
+        # Query corrigida: removida a duplicidade da coluna 'tipo'
         create_table_query = f"""
         CREATE TABLE IF NOT EXISTS {nome_tabela} (
-            id_chamado BIGINT NOT NULL PRIMARY KEY,
-            titulo TEXT,
-            aberto DATETIME,
-            resolvido DATETIME,
-            concluido DATETIME,
-            resolverPlanejado DATETIME,
-            resolverEstipulado DATETIME,
-            primeiraInteracao DATETIME,
-            ultimaAlteracao DATETIME,
-            tipo BIGINT,
-            situacao BIGINT,
-            solicitante_id BIGINT,
-            solicitante_nome VARCHAR(255),
-            responsavel_id BIGINT,
-            responsavel_nome VARCHAR(255),
-            unidade_id BIGINT,
-            unidade_nome VARCHAR(255),
-            departamento_id BIGINT,
-            departamento_nome VARCHAR(255),
-            assunto_id BIGINT,
-            assunto_nome VARCHAR(255),
-            countInteracaoPublico BIGINT,
-            countInteracaoInterno BIGINT,
-            apoio JSON,
-            etiqueta TEXT,
-            avaliacaoNota TEXT
+            `id_chamado` INT(11) NOT NULL,
+            `titulo` TEXT NULL DEFAULT NULL,
+            `apoio` TEXT NULL DEFAULT NULL,
+            `etiqueta` TEXT NULL DEFAULT NULL,
+            `tipo` INT(11) NULL DEFAULT NULL, -- Mantém o tipo numérico original da API
+            `aberto` DATETIME NULL DEFAULT NULL, -- Tipo de dado ajustado para DATETIME
+            `resolvido` DATETIME NULL DEFAULT NULL,
+            `concluido` DATETIME NULL DEFAULT NULL,
+            `resolverPlanejado` DATETIME NULL DEFAULT NULL,
+            `resolverEstipulado` DATETIME NULL DEFAULT NULL,
+            `avaliacaoNota` TEXT NULL DEFAULT NULL,
+            `avaliacaoObservacao` TEXT NULL DEFAULT NULL,
+            `situacao` INT(11) NULL DEFAULT NULL,
+            `primeiraInteracao` DATETIME NULL DEFAULT NULL,
+            `ultimaAlteracao` DATETIME NULL DEFAULT NULL,
+            `countInteracaoPublico` INT(11) NULL DEFAULT NULL,
+            `countInteracaoInterno` INT(11) NULL DEFAULT NULL,
+            `solicitante_id` INT(11) NULL DEFAULT NULL,
+            `solicitante_nome` TEXT NULL DEFAULT NULL,
+            `responsavel_id` INT(11) NULL DEFAULT NULL,
+            `responsavel_nome` TEXT NULL DEFAULT NULL,
+            `unidade_id` INT(11) NULL DEFAULT NULL,
+            `unidade_nome` TEXT NULL DEFAULT NULL,
+            `departamento_id` TEXT NULL DEFAULT NULL,
+            `departamento_nome` TEXT NULL DEFAULT NULL,
+            `assunto_id` TEXT NULL DEFAULT NULL,
+            `assunto_nome` TEXT NULL DEFAULT NULL,
+            `tipo_origem` VARCHAR(100) NULL DEFAULT NULL,
+            PRIMARY KEY (`id_chamado`) USING BTREE
         );
         """
         
